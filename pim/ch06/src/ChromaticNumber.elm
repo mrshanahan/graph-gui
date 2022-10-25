@@ -47,10 +47,8 @@ clickDecoder =
     (Decode.field "clientY" Decode.int)
 
 type Msg
-  = AddNode OnClickData
-  | AddEdge (Int, Int)
+  = ClickEmpty OnClickData
   | SelectNode Int
-  | DeleteNode
 
 init : () -> (Model, Cmd Msg)
 init _ =
@@ -80,7 +78,7 @@ handleMsg msg model =
         g
   in
   case msg of
-    AddNode data ->
+    ClickEmpty data ->
       case model.selectedNode of
         Nothing -> 
           { model
@@ -88,27 +86,20 @@ handleMsg msg model =
           , nextId = model.nextId+1
           }
         Just _  -> { model | selectedNode = Nothing }
-    AddEdge (n1,n2) ->
-      model
     SelectNode n ->
       case model.selectedNode of
         Nothing -> { model | selectedNode = Just n }
         Just id ->
           if id == n then
-            model
+            { model
+            | graph = removeGraphNode id model.graph
+            , selectedNode = Nothing
+            }
           else
             { model
             | graph = addGraphEdge (id,n) model.graph
             , selectedNode = Nothing
             }
-    DeleteNode ->
-      case model.selectedNode of
-        Nothing -> model
-        Just id ->
-          { model
-          | graph = removeGraphNode id model.graph
-          , selectedNode = Nothing
-          }
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model = ( handleMsg msg model, Cmd.none )
@@ -117,7 +108,6 @@ drawNode : Bool -> Node -> Svg Msg
 drawNode isSelected { id, x, y } =
   let
     color = if isSelected then "yellow" else "red"
-    handler = if isSelected then DeleteNode else SelectNode id
   in
   circle
   [ fill color -- "red"
@@ -125,7 +115,7 @@ drawNode isSelected { id, x, y } =
   , cx <| String.fromInt x
   , cy <| String.fromInt y
   , r "10"
-  , Svg.Events.onClick handler
+  , Svg.Events.onClick (SelectNode id)
   ]
   []
   -- [ Svg.text <| String.fromInt id ]
@@ -172,7 +162,7 @@ drawGraph selectedNode { nodes, edges } =
   , stroke "black"
   , width "400"
   , height "400"
-  , Svg.Events.on "click" (Decode.map AddNode clickDecoder)
+  , Svg.Events.on "click" (Decode.map ClickEmpty clickDecoder)
   ] []) ::
     (List.append
       (List.concat <| (List.map (drawEdge nodes) edges))
