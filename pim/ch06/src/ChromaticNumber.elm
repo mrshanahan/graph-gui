@@ -17,11 +17,15 @@ main =
     , view = view
     }
 
+type Selection
+  = NoneSelected
+  | NodeSelected Int
+  | EdgeSelected (Int,Int)
+
 type alias Model =
   { graph : Graph
   , display : String
-  , selectedNode : Maybe Int
-  , selectedEdge : Maybe (Int,Int)
+  , selection : Selection
   , nextId : Int
   }
 
@@ -54,7 +58,7 @@ type Msg
 
 init : () -> (Model, Cmd Msg)
 init _ =
-  ( Model (Graph [] []) "" Nothing Nothing 0
+  ( Model (Graph [] []) "" NoneSelected 0
   , Cmd.none
   )
 
@@ -83,52 +87,32 @@ handleMsg msg model =
   in
   case msg of
     ClickEmpty data ->
-      case (model.selectedNode,model.selectedEdge) of
-        (Nothing,Nothing) ->
+      case model.selection of
+        NoneSelected ->
           { model
           | graph = addGraphNode (Node model.nextId data.clientX data.clientY) model.graph
           , nextId = model.nextId+1
           }
-        (_,_)             ->
-          { model | selectedNode = Nothing, selectedEdge = Nothing }
+        _    ->
+          { model | selection = NoneSelected }
     SelectNode n ->
-      case model.selectedNode of
-        Nothing ->
-          { model
-          | selectedNode = Just n
-          , selectedEdge = Nothing
-          }
-        Just id ->
+      case model.selection of
+        NodeSelected id ->
           if id == n then
-            { model
-            | graph = removeGraphNode id model.graph
-            , selectedNode = Nothing
-            , selectedEdge = Nothing
-            }
+            { model | graph = removeGraphNode id model.graph, selection = NoneSelected }
           else
-            { model
-            | graph = addGraphEdge (id,n) model.graph
-            , selectedNode = Nothing
-            , selectedEdge = Nothing
-            }
+            { model | graph = addGraphEdge (id,n) model.graph, selection = NoneSelected }
+        _ ->
+          { model | selection = NodeSelected n }
     SelectEdge (n1,n2) ->
-      case model.selectedEdge of
-        Nothing ->
-          { model
-          | selectedEdge = Just (n1,n2)
-          , selectedNode = Nothing }
-        Just (m1,m2)  ->
+      case model.selection of
+        EdgeSelected (m1,m2) ->
           if (m1,m2) == (n1,n2) then
-            { model
-            | graph = removeGraphEdge (n1,n2) model.graph
-            , selectedEdge = Nothing
-            , selectedNode = Nothing
-            }
+            { model | graph = removeGraphEdge (n1,n2) model.graph, selection = NoneSelected }
           else
-            { model
-            | selectedEdge = Just (m1,m2)
-            , selectedNode = Nothing
-            }
+            { model | selection = EdgeSelected (m1,m2) }
+        _            ->
+          { model | selection = EdgeSelected (n1,n2) }
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model = ( handleMsg msg model, Cmd.none )
@@ -149,12 +133,12 @@ drawNode isSelected { id, x, y } =
   []
   -- [ Svg.text <| String.fromInt id ]
 
-drawViewNode : Maybe Int -> Node -> Svg Msg
-drawViewNode selected node =
-  case selected of
-    Nothing -> drawNode False node
-    Just id -> if id == node.id then drawNode True node
+drawViewNode : Selection -> Node -> Svg Msg
+drawViewNode selection node =
+  case selection of
+    NodeSelected id -> if id == node.id then drawNode True node
                                 else drawNode False node
+    _               -> drawNode False node
 
 find : (a -> Bool) -> List a -> Maybe a
 find f xs =
@@ -196,19 +180,15 @@ drawEdge isSelected nodes (id1,id2) =
         []
       ]
 
-drawViewEdge : Maybe (Int,Int) -> List Node -> (Int, Int) -> List (Svg Msg)
-drawViewEdge selectedEdge nodes (id1,id2) =
-  case selectedEdge of
-    Nothing ->
-      drawEdge False nodes (id1,id2)
-    Just (n1,n2) ->
-      if (n1,n2) == (id1,id2) then
-        drawEdge True nodes (id1,id2)
-      else
-        drawEdge False nodes (id1,id2)
+drawViewEdge : Selection -> List Node -> (Int, Int) -> List (Svg Msg)
+drawViewEdge selection nodes (id1,id2) =
+  case selection of
+    EdgeSelected (n1,n2) -> if (n1,n2) == (id1,id2) then drawEdge True nodes (id1,id2)
+                                            else drawEdge False nodes (id1,id2)
+    _                    -> drawEdge False nodes (id1,id2)
 
-drawGraph : Maybe Int -> Maybe (Int, Int) -> Graph -> List (Svg Msg)
-drawGraph selectedNode selectedEdge { nodes, edges } =
+drawGraph : Selection -> Graph -> List (Svg Msg)
+drawGraph selection { nodes, edges } =
   (rect
   [ fill "transparent"
   , fillOpacity "0.0"
@@ -218,8 +198,8 @@ drawGraph selectedNode selectedEdge { nodes, edges } =
   , Svg.Events.on "click" (Decode.map ClickEmpty clickDecoder)
   ] []) ::
     (List.append
-      (List.concat <| (List.map (drawViewEdge selectedEdge nodes) edges))
-      (List.map (drawViewNode selectedNode) nodes)
+      (List.concat <| (List.map (drawViewEdge selection nodes) edges))
+      (List.map (drawViewNode selection) nodes)
     )
 
 view : Model -> Html Msg
@@ -229,7 +209,7 @@ view model =
       [ width "400"
       , height "400"
       ]
-      (drawGraph model.selectedNode model.selectedEdge model.graph)
+      (drawGraph model.selection model.graph)
     , Html.text <| String.fromInt <| List.length model.graph.nodes
     ]
       
