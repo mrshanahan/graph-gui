@@ -6,9 +6,9 @@ import Html.Events exposing (..)
 import Svg exposing (..)
 import Svg.Attributes exposing (..)
 import Svg.Events exposing (..)
+import Debug exposing (log)
 
 import Json.Decode as Decode
-
 main =
   Browser.element
     { init = init
@@ -16,18 +16,6 @@ main =
     , subscriptions = \_ -> Sub.none
     , view = view
     }
-
-type Selection
-  = NoneSelected
-  | NodeSelected Int
-  | EdgeSelected (Int,Int)
-
-type alias Model =
-  { graph : Graph
-  , display : String
-  , selection : Selection
-  , nextId : Int
-  }
 
 type alias Node =
   { id : Int
@@ -40,25 +28,40 @@ type alias Graph =
   , edges : List (Int, Int)
   }
 
-type alias OnClickData =
+type Selection
+  = NoneSelected
+  | NodeSelected Int
+  | EdgeSelected (Int,Int)
+
+type alias Model =
+  { graph : Graph
+  , nextId : Int
+  , selection : Selection
+  , dragging : Maybe Int
+  }
+
+type alias MouseLocationData =
   { clientX : Int
   , clientY : Int
   }
 
-clickDecoder : Decode.Decoder OnClickData
-clickDecoder =
-  Decode.map2 OnClickData
+mouseLocationDecoder : Decode.Decoder MouseLocationData
+mouseLocationDecoder =
+  Decode.map2 MouseLocationData
     (Decode.field "clientX" Decode.int)
     (Decode.field "clientY" Decode.int)
 
 type Msg
-  = ClickEmpty OnClickData
+  = ClickEmpty MouseLocationData
   | SelectNode Int
   | SelectEdge (Int,Int)
+  | StartDrag Int
+  | DragNode MouseLocationData
+  | EndDrag MouseLocationData
 
 init : () -> (Model, Cmd Msg)
 init _ =
-  ( Model (Graph [] []) "" NoneSelected 0
+  ( Model (Graph [] []) 0 NoneSelected Nothing
   , Cmd.none
   )
 
@@ -73,6 +76,11 @@ handleMsg msg model =
       }
     removeGraphEdge (n1,n2) g =
       { g | edges = List.filter (\(m1,m2) -> (m1,m2) /= (n1,n2)) g.edges }
+    moveGraphNode (id,x,y) g =
+      let
+        moveNode n = if n.id == id then { n | x = x, y = y } else n
+      in
+      { g | nodes = List.map moveNode g.nodes }
 
     -- TODO: Make searching/updating not Omega(n)
     addGraphEdge (n1,n2) g =
@@ -93,7 +101,7 @@ handleMsg msg model =
           | graph = addGraphNode (Node model.nextId data.clientX data.clientY) model.graph
           , nextId = model.nextId+1
           }
-        _    ->
+        _ ->
           { model | selection = NoneSelected }
     SelectNode n ->
       case model.selection of
@@ -111,16 +119,36 @@ handleMsg msg model =
             { model | graph = removeGraphEdge (n1,n2) model.graph, selection = NoneSelected }
           else
             { model | selection = EdgeSelected (m1,m2) }
-        _            ->
+        _ ->
           { model | selection = EdgeSelected (n1,n2) }
+    StartDrag n ->
+      { model | dragging = Just n }
+    DragNode data ->
+      case model.dragging of
+        Just n ->
+          { model
+          | graph = moveGraphNode (n,data.clientX,data.clientY) model.graph
+          , selection = NoneSelected
+          }
+        _ ->
+          model
+    EndDrag data ->
+      case model.dragging of
+        Just n ->
+          { model | dragging = Nothing }
+        _ ->
+          model
 
 update : Msg -> Model -> ( Model, Cmd Msg )
+--update msg model = ( handleMsg msg model |> log "update", Cmd.none )
 update msg model = ( handleMsg msg model, Cmd.none )
 
-drawNode : Bool -> Node -> Svg Msg
-drawNode isSelected { id, x, y } =
-  let
-    color = if isSelected then "yellow" else "red"
+drawNode : (Bool, Bool) -> Node -> Svg Msg
+drawNode (isSelected,isDragging) { id, x, y } =
+  let color =
+        if isSelected then "yellow"
+        else if isDragging then "pink"
+        else "red"
   in
   circle
   [ fill color -- "red"
@@ -129,16 +157,27 @@ drawNode isSelected { id, x, y } =
   , cy <| String.fromInt y
   , r "10"
   , Svg.Events.onClick (SelectNode id)
+  , Svg.Events.onMouseDown (StartDrag id)
+  , Svg.Events.on "mouseup" (Decode.map EndDrag mouseLocationDecoder)
+  , Svg.Events.on "mousemove" (Decode.map DragNode mouseLocationDecoder)
+  , Svg.Events.on "mouseleave" (Decode.map DragNode mouseLocationDecoder)
   ]
   []
   -- [ Svg.text <| String.fromInt id ]
 
-drawViewNode : Selection -> Node -> Svg Msg
-drawViewNode selection node =
-  case selection of
-    NodeSelected id -> if id == node.id then drawNode True node
-                                else drawNode False node
-    _               -> drawNode False node
+drawViewNode : (Selection, Maybe Int) -> Node -> Svg Msg
+drawViewNode (selection, dragging) node =
+  let
+      isSelected =
+        case selection of
+          NodeSelected id -> id == node.id
+          _               -> False
+      isDragging =
+        case dragging of
+          Just id -> id == node.id
+          _       -> False
+  in
+  drawNode (isSelected, isDragging) node
 
 find : (a -> Bool) -> List a -> Maybe a
 find f xs =
@@ -187,19 +226,20 @@ drawViewEdge selection nodes (id1,id2) =
                                             else drawEdge False nodes (id1,id2)
     _                    -> drawEdge False nodes (id1,id2)
 
-drawGraph : Selection -> Graph -> List (Svg Msg)
-drawGraph selection { nodes, edges } =
+drawGraph : (Selection, Maybe Int) -> Graph -> List (Svg Msg)
+drawGraph (selection, dragging) { nodes, edges } =
   (rect
   [ fill "transparent"
   , fillOpacity "0.0"
   , stroke "black"
   , width "400"
   , height "400"
-  , Svg.Events.on "click" (Decode.map ClickEmpty clickDecoder)
+  , Svg.Events.on "click" (Decode.map ClickEmpty mouseLocationDecoder)
+  , Svg.Events.on "mouseup" (Decode.map EndDrag mouseLocationDecoder)
   ] []) ::
     (List.append
       (List.concat <| (List.map (drawViewEdge selection nodes) edges))
-      (List.map (drawViewNode selection) nodes)
+      (List.map (drawViewNode (selection, dragging)) nodes)
     )
 
 view : Model -> Html Msg
@@ -209,7 +249,7 @@ view model =
       [ width "400"
       , height "400"
       ]
-      (drawGraph model.selection model.graph)
+      (drawGraph (model.selection,model.dragging) model.graph)
     , Html.text <| String.fromInt <| List.length model.graph.nodes
     ]
       
