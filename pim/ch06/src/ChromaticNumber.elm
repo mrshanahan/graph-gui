@@ -8,7 +8,7 @@ import Html.Events exposing (..)
 import Svg exposing (..)
 import Svg.Attributes exposing (..)
 import Svg.Events exposing (..)
-import Debug exposing (log)
+import Debug exposing (log,toString)
 
 import Json.Decode as Decode
 
@@ -89,7 +89,8 @@ handleMsg msg model =
       case model.selection of
         EdgeSelected (m1,m2) ->
           if (m1,m2) == (n1,n2) then
-            { model | graph = removeEdge (n1,n2) model.graph, selection = NoneSelected }
+            -- { model | graph = removeEdge (n1,n2) model.graph, selection = NoneSelected }
+            { model | graph = contractEdge (n1,n2) model.graph, selection = NoneSelected }
           else
             { model | selection = EdgeSelected (m1,m2) }
         _ ->
@@ -223,7 +224,9 @@ view model =
       , height "400"
       ]
       (drawGraph (model.selection,model.dragging) model.graph)
+    , div [] [ Html.text <| "V: " ++ (toString model.graph.nodes) ]
     , div [] [ Html.text <| "|V|: " ++ (String.fromInt <| List.length model.graph.nodes) ]
+    , div [] [ Html.text <| "E: " ++ (toString model.graph.edges) ]
     , div [] [ Html.text <| "|E|: " ++ (String.fromInt <| List.length model.graph.edges) ]
     , div [] [ Html.text <| "CHI(G;3): " ++ (String.fromInt <| chromatic 3 model.graph) ]
     ]
