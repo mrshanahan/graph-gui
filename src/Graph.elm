@@ -12,7 +12,11 @@ type alias Graph =
   }
 
 chromatic : Int -> Graph -> Int
-chromatic k g = 0
+chromatic k g =
+  case (g.nodes,g.edges) of
+    ([],_)    -> 0
+    (ns,[])   -> k ^ (List.length ns)
+    (_,e::es) -> (chromatic k <| removeEdge e g) - (chromatic k <| contractEdge e g)
 
 contractEdge : (Int, Int) -> Graph -> Graph
 contractEdge (id1,id2) g =

@@ -89,8 +89,7 @@ handleMsg msg model =
       case model.selection of
         EdgeSelected (m1,m2) ->
           if (m1,m2) == (n1,n2) then
-            -- { model | graph = removeEdge (n1,n2) model.graph, selection = NoneSelected }
-            { model | graph = contractEdge (n1,n2) model.graph, selection = NoneSelected }
+            { model | graph = removeEdge (n1,n2) model.graph, selection = NoneSelected }
           else
             { model | selection = EdgeSelected (m1,m2) }
         _ ->
